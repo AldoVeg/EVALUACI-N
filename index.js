@@ -1,18 +1,5 @@
 /* ============================================================
    SISTEMA DE EVALUACIÓN AUTOMATIZADA — LÓGICA PRINCIPAL
-   ============================================================
-   Mejoras aplicadas:
-   - Soporte ZIP: descompresión recursiva con JSZip
-   - Soporte DOCX: extracción de texto con Mammoth.js
-   - Soporte carpetas: input webkitdirectory + DataTransferItem
-   - Motor de evaluación con pesos ponderados (no solo conteo)
-   - Manejo de errores por archivo (un fallo no detiene el lote)
-   - Overlay de carga con progreso real
-   - Filtro de búsqueda en tabla
-   - Panel de errores acumulativos
-   - Estadísticas de archivos procesados
-   - Limpieza de sesión
-   - Exportación mejorada con metadatos
    ============================================================ */
 
 // ─── Configuración de workers ───────────────────────────────
@@ -86,7 +73,10 @@ const CONECTORES = [
 // ─── ESTADO GLOBAL ──────────────────────────────────────────
 let resultadosEvaluacion = [];
 let erroresProcesamiento  = [];
-let archivosDetectados    = [];  // { name, type, size }
+let archivosDetectados    = [];  // { name, type, size, file }
+
+// Helper para no bloquear el hilo de renderizado
+const yieldToMain = () => new Promise(resolve => setTimeout(resolve, 0));
 
 // ─── REFERENCIAS DOM ────────────────────────────────────────
 const $ = (sel) => document.querySelector(sel);
@@ -126,7 +116,7 @@ function init() {
     bindDropZoneKeyboard();
 }
 
-// ─── DRAG & DROP (CORREGIDO) ────────────────────────────────
+// ─── DRAG & DROP ────────────────────────────────────────────
 function bindDragDrop() {
     const events = ['dragenter', 'dragover', 'dragleave', 'drop'];
 
@@ -140,7 +130,6 @@ function bindDragDrop() {
     dropZone.addEventListener('dragenter', () => dropZone.classList.add('dragover'));
     dropZone.addEventListener('dragover',  () => dropZone.classList.add('dragover'));
     dropZone.addEventListener('dragleave', (e) => {
-        // Solo remover si realmente salimos del dropzone (no de un hijo)
         if (!dropZone.contains(e.relatedTarget)) {
             dropZone.classList.remove('dragover');
         }
@@ -169,7 +158,7 @@ function bindDragDrop() {
     });
 }
 
-// ─── RECOLECCIÓN DE ARCHIVOS (incluye carpetas anidadas vía DataTransferItem) ──
+// ─── RECOLECCIÓN DE ARCHIVOS EN CARPETAS ────────────────────
 async function collectFilesFromDataTransfer(items) {
     const allFiles = [];
 
@@ -209,7 +198,7 @@ function readDirectory(dirEntry, accumulator) {
                         await readDirectory(entry, accumulator);
                     }
                 }
-                readBatch(); // seguir leyendo lotes
+                readBatch();
             });
         };
         readBatch();
@@ -228,6 +217,8 @@ function handleIncomingFiles(files) {
 
     const validExtensions = ['.pdf', '.docx', '.zip'];
     const validFiles = files.filter(f => {
+        // Ignorar metadatos de sistema (macOS / Windows)
+        if (isSystemOrHiddenFile(f.name)) return false;
         const ext = '.' + f.name.split('.').pop().toLowerCase();
         return validExtensions.includes(ext);
     });
@@ -245,8 +236,20 @@ function handleIncomingFiles(files) {
     }));
 
     renderFileList();
-    updateStats();
+    updateStats(archivosDetectados);
     processAllFiles();
+}
+
+// ─── FILTRO DE ARCHIVOS DE SISTEMA / OCULTOS ────────────────
+function isSystemOrHiddenFile(path) {
+    const fileName = path.split('/').pop();
+    return (
+        path.includes('__MACOSX') ||
+        fileName.startsWith('._') ||
+        fileName.startsWith('.') ||
+        fileName.toLowerCase() === 'thumbs.db' ||
+        fileName.toLowerCase() === 'desktop.ini'
+    );
 }
 
 // ─── RENDERIZAR LISTA DE ARCHIVOS ───────────────────────────
@@ -263,14 +266,13 @@ function renderFileList() {
         fileList.appendChild(li);
     });
 
-    // Bindear botones de quitar
     fileList.querySelectorAll('.file-remove').forEach(btn => {
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
             const idx = parseInt(btn.dataset.index);
             archivosDetectados.splice(idx, 1);
             renderFileList();
-            updateStats();
+            updateStats(archivosDetectados);
             if (archivosDetectados.length === 0) {
                 fileListCont.hidden = true;
                 btnClear.disabled = true;
@@ -284,11 +286,11 @@ function renderFileList() {
 }
 
 // ─── ACTUALIZAR ESTADÍSTICAS ────────────────────────────────
-function updateStats() {
-    const total  = archivosDetectados.length;
-    const pdfs   = archivosDetectados.filter(f => f.type === 'pdf').length;
-    const docxs  = archivosDetectados.filter(f => f.type === 'docx').length;
-    const zips   = archivosDetectados.filter(f => f.type === 'zip').length;
+function updateStats(list) {
+    const total = list.length;
+    const pdfs  = list.filter(f => f.type === 'pdf').length;
+    const docxs = list.filter(f => f.type === 'docx').length;
+    const zips  = list.filter(f => f.type === 'zip').length;
 
     statTotal.textContent = `${total} documento${total !== 1 ? 's' : ''}`;
     statPdf.textContent   = `${pdfs} PDF`;
@@ -307,29 +309,48 @@ async function processAllFiles() {
     hideError();
 
     showLoading('Preparando procesamiento...', 0);
+    await yieldToMain();
 
-    // Fase 1: Descomprimir ZIPs y recolectar todos los archivos planos
+    // Fase 1: Descomprimir ZIPs de forma recursiva y aplanar la lista
     const flatFiles = [];
-    for (const entry of archivosDetectados) {
+    for (let i = 0; i < archivosDetectados.length; i++) {
+        const entry = archivosDetectados[i];
         if (entry.type === 'zip') {
-            updateLoading(`Descomprimiendo: ${entry.name}`, 0);
+            updateLoading(`Descomprimiendo: ${entry.name}`, 10);
+            await yieldToMain();
             try {
                 const extracted = await extractZip(entry.file);
-                flatFiles.push(...extracted);
+                if (extracted.length === 0) {
+                    erroresProcesamiento.push(`${entry.name}: El archivo ZIP no contiene documentos válidos (PDF/DOCX).`);
+                } else {
+                    flatFiles.push(...extracted);
+                }
             } catch (err) {
-                erroresProcesamiento.push(`${entry.name}: error al descomprimir ZIP.`);
+                console.error(`Error al descomprimir ${entry.name}:`, err);
+                erroresProcesamiento.push(`${entry.name}: Error al descomprimir ZIP (${err.message || 'archivo dañado'}).`);
             }
         } else {
             flatFiles.push(entry);
         }
     }
 
-    // Fase 2: Procesar cada archivo plano
+    // Actualizar el panel de estadísticas con la lista real de documentos extraídos
+    updateStats(flatFiles);
+
+    if (flatFiles.length === 0) {
+        hideLoading();
+        showError('No se encontraron documentos evaluables dentro de los archivos cargados.');
+        statusText.textContent = '⚠️ No hay documentos válidos para evaluar.';
+        return;
+    }
+
+    // Fase 2: Procesar e inspeccionar cada documento
     const total = flatFiles.length;
     for (let i = 0; i < total; i++) {
         const entry = flatFiles[i];
         const progress = Math.round(((i + 1) / total) * 100);
         updateLoading(`Evaluando (${i + 1}/${total}): ${entry.name}`, progress);
+        await yieldToMain();
 
         try {
             let text = '';
@@ -338,12 +359,12 @@ async function processAllFiles() {
             } else if (entry.type === 'docx') {
                 text = await extractTextFromDOCX(entry.file);
             } else {
-                erroresProcesamiento.push(`${entry.name}: formato no soportado para extracción.`);
+                erroresProcesamiento.push(`${entry.name}: Formato no soportado.`);
                 continue;
             }
 
             if (!text || text.trim().length < 20) {
-                erroresProcesamiento.push(`${entry.name}: texto extraído demasiado corto o vacío.`);
+                erroresProcesamiento.push(`${entry.name}: Texto insuficiente o escaneado (se requiere texto seleccionable).`);
                 continue;
             }
 
@@ -352,17 +373,17 @@ async function processAllFiles() {
 
         } catch (err) {
             console.error(`Error procesando ${entry.name}:`, err);
-            erroresProcesamiento.push(`${entry.name}: ${err.message || 'Error desconocido'}`);
+            erroresProcesamiento.push(`${entry.name}: ${err.message || 'Error al leer el documento.'}`);
         }
     }
 
     hideLoading();
 
-    // Mostrar errores si los hay
+    // Mostrar errores si existieran
     if (erroresProcesamiento.length > 0) {
-        showError(`${erroresProcesamiento.length} archivo(s) no se pudieron procesar: ` +
-            erroresProcesamiento.slice(0, 5).join('; ') +
-            (erroresProcesamiento.length > 5 ? '...' : ''));
+        showError(`${erroresProcesamiento.length} archivo(s) no se pudieron procesar:\n` +
+            erroresProcesamiento.slice(0, 5).join('\n') +
+            (erroresProcesamiento.length > 5 ? '\n...' : ''));
     }
 
     // Actualizar UI
@@ -378,28 +399,45 @@ async function processAllFiles() {
     filterBar.hidden = !hayResultados;
 }
 
-// ─── EXTRACCIÓN ZIP (RECURSIVO, SIN MEZCLAR) ────────────────
-async function extractZip(zipFile) {
+// ─── EXTRACCIÓN ZIP (RECURSIVA Y REFINADA) ───────────────────
+async function extractZip(zipFile, depth = 0) {
+    if (depth > 5) return []; // Control de recursión para evitar bucles infinitos
     const extracted = [];
-    const zip = await JSZip.loadAsync(zipFile);
+    
+    // JSZip debe estar cargado en el scope global por index.html
+    if (typeof JSZip === 'undefined') {
+        throw new Error('La librería JSZip no se ha cargado correctamente.');
+    }
 
+    const zip = await JSZip.loadAsync(zipFile);
     const entries = Object.entries(zip.files);
 
     for (const [path, zipEntry] of entries) {
-        if (zipEntry.dir) continue; // saltar directorios
+        // Omitir directorios explícitos y archivos fantasma/sistema
+        if (zipEntry.dir || isSystemOrHiddenFile(path)) continue;
 
-        const ext = '.' + path.split('.').pop().toLowerCase();
-        if (!['.pdf', '.docx'].includes(ext)) continue; // solo formatos de texto
+        const fileName = path.split('/').pop();
+        const ext = '.' + fileName.split('.').pop().toLowerCase();
 
-        const blob = await zipEntry.async('blob');
-        const file = new File([blob], path.split('/').pop(), { type: blob.type });
+        if (['.pdf', '.docx'].includes(ext)) {
+            const blob = await zipEntry.async('blob');
+            const file = new File([blob], fileName, { 
+                type: ext === '.pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' 
+            });
 
-        extracted.push({
-            name: path.split('/').pop(),
-            type: ext.replace('.', ''),
-            size: blob.size,
-            file: file,
-        });
+            extracted.push({
+                name: fileName,
+                type: ext.replace('.', ''),
+                size: blob.size,
+                file: file,
+            });
+        } else if (ext === '.zip') {
+            // Descompresión recursiva de archivos ZIP anidados
+            const zipBlob = await zipEntry.async('blob');
+            const nestedZipFile = new File([zipBlob], fileName, { type: 'application/zip' });
+            const subFiles = await extractZip(nestedZipFile, depth + 1);
+            extracted.push(...subFiles);
+        }
     }
 
     return extracted;
@@ -522,7 +560,6 @@ function evaluateContent(fileName, text) {
 function computeWeightedScore(text, dictionary, maxPoints) {
     let totalWeight = 0;
     dictionary.forEach(({ word, weight }) => {
-        // Contar ocurrencias (con regex para palabras compuestas)
         const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const regex = new RegExp(escaped, 'gi');
         const matches = text.match(regex);
@@ -531,8 +568,6 @@ function computeWeightedScore(text, dictionary, maxPoints) {
         }
     });
 
-    // Normalizar a la escala de maxPoints
-    // El peso máximo teórico se calcula como si cada término apareciera 3 veces
     const maxTheoretical = dictionary.reduce((sum, { weight }) => sum + weight * 3, 0);
     const normalized = maxTheoretical > 0 ? (totalWeight / maxTheoretical) * maxPoints : 0;
 
@@ -647,7 +682,6 @@ function exportPDF() {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ orientation: 'landscape' });
 
-    // Encabezado
     doc.setFontSize(16);
     doc.text('Reporte Consolidado de Evaluación Académica', 14, 15);
     doc.setFontSize(10);
@@ -713,7 +747,7 @@ function bindErrorDismiss() {
     errorPanel.querySelector('.error-dismiss').addEventListener('click', hideError);
 }
 
-// ─── ACCESIBILIDAD: DROPZONE POR TECLADO ────────────────────
+// ─── ACCESIBILIDAD ──────────────────────────────────────────
 function bindDropZoneKeyboard() {
     dropZone.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -723,7 +757,6 @@ function bindDropZoneKeyboard() {
     });
 }
 
-// ─── UTILIDADES ─────────────────────────────────────────────
 function escapeHTML(str) {
     const div = document.createElement('div');
     div.textContent = str;
