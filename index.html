@@ -3,179 +3,110 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Sistema de Evaluación Automatizada para proyectos de RR.HH. y Derecho Laboral. Rúbrica vigesimal (0-20).">
-    <title>Evaluador Automatizado de Proyectos | RR.HH. & Derecho Laboral</title>
+    <title>Evaluación Automática RR.HH.</title>
     <link rel="stylesheet" href="styles.css">
-
-    <!-- PDF.js: procesamiento de PDF en cliente -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-
-    <!-- Mammoth.js: conversión de DOCX a HTML/texto -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
-
-    <!-- JSZip: descompresión de archivos ZIP en cliente -->
+    
+    <!-- Librerías Externas (CDN Seguros para GitHub Pages) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-
-    <!-- jsPDF + AutoTable: generación de reportes PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 </head>
 <body>
 
-    <!-- ========== OVERLAY DE CARGA ========== -->
-    <div id="loading-overlay" class="loading-overlay" role="alert" aria-live="assertive" hidden>
-        <div class="loading-spinner" aria-hidden="true"></div>
-        <p id="loading-message">Procesando archivos...</p>
-        <progress id="loading-progress" value="0" max="100" aria-label="Progreso de carga"></progress>
-    </div>
+    <main class="container">
+        <header class="app-header">
+            <h1>Sistema de Evaluación <span>RR.HH.</span></h1>
+            <p>Sube archivos PDF, DOCX o ZIP. El sistema extraerá, leerá y evaluará el contenido automáticamente.</p>
+        </header>
 
-    <!-- ========== HEADER ========== -->
-    <header class="app-header" role="banner">
-        <div class="header-container">
-            <h1>Sistema de Evaluación Automatizada</h1>
-            <p>Programa de Educación & Gestión Humana | Rúbrica Vigesimal (0-20)</p>
-        </div>
-    </header>
-
-    <!-- ========== CONTENIDO PRINCIPAL ========== -->
-    <main class="main-container" role="main">
-
-        <!-- Sección de carga masiva -->
-        <section class="upload-section" aria-labelledby="upload-heading">
-            <h2 id="upload-heading" class="sr-only">Carga de archivos</h2>
-
-            <div id="drop-zone"
-                 class="drop-zone"
-                 role="button"
-                 tabindex="0"
-                 aria-label="Zona de carga. Arrastra archivos o haz clic para seleccionar."
-                 aria-describedby="drop-zone-desc">
-
-                <div class="drop-zone-content">
-                    <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                        <polyline points="17 8 12 3 7 8"></polyline>
-                        <line x1="12" y1="3" x2="12" y2="15"></line>
-                    </svg>
-                    <h3>Arrastra aquí archivos, carpetas o paquetes ZIP</h3>
-                    <p id="drop-zone-desc">
-                        Formatos aceptados: <strong>.pdf</strong>, <strong>.docx</strong>, <strong>.zip</strong><br>
-                        También puedes seleccionar carpetas completas
-                    </p>
-
-                    <!-- Input múltiple: archivos individuales -->
-                    <input type="file"
-                           id="file-input"
-                           multiple
-                           accept=".pdf,.docx,.zip"
-                           class="file-input"
-                           aria-label="Seleccionar archivos PDF, DOCX o ZIP">
-
-                    <!-- Input para carpeta completa -->
-                    <input type="file"
-                           id="folder-input"
-                           webkitdirectory
-                           multiple
-                           class="file-input"
-                           aria-label="Seleccionar carpeta completa"
-                           style="display:none;">
-
-                    <div class="upload-buttons">
-                        <button type="button" id="btn-select-files" class="btn btn-outline btn-sm">
-                            📄 Seleccionar Archivos
-                        </button>
-                        <button type="button" id="btn-select-folder" class="btn btn-outline btn-sm">
-                            📁 Seleccionar Carpeta
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Lista de archivos detectados -->
-            <div id="file-list-container" class="file-list-container" hidden>
-                <h3>Archivos detectados (<span id="file-count">0</span>)</h3>
-                <ul id="file-list" class="file-list" aria-label="Lista de archivos cargados"></ul>
-            </div>
-        </section>
-
-        <!-- Panel de error -->
-        <div id="error-panel" class="error-panel" role="alert" hidden>
-            <span class="error-icon" aria-hidden="true">⚠️</span>
+        <!-- Panel de Errores -->
+        <div id="error-panel" class="alert alert-danger" hidden>
             <span id="error-message"></span>
-            <button type="button" class="error-dismiss" aria-label="Cerrar aviso">&times;</button>
+            <button class="error-dismiss">&times;</button>
         </div>
 
-        <!-- Barra de Estado y Acciones -->
-        <section class="controls-section" aria-labelledby="controls-heading">
-            <h2 id="controls-heading" class="sr-only">Controles y acciones</h2>
-
-            <div class="status-box">
-                <span id="status-text" role="status">Esperando archivos...</span>
-                <div class="stats-summary" id="stats-summary" hidden>
-                    <span class="stat-badge stat-total" id="stat-total">0 documentos</span>
-                    <span class="stat-badge stat-pdf" id="stat-pdf">0 PDF</span>
-                    <span class="stat-badge stat-docx" id="stat-docx">0 DOCX</span>
-                    <span class="stat-badge stat-zip" id="stat-zip">0 ZIP</span>
+        <!-- Zona de Arrastre y Selección -->
+        <section id="drop-zone" class="drop-zone" tabindex="0">
+            <div class="drop-zone-content">
+                <span class="icon">📁</span>
+                <h2>Arrastra y suelta tus archivos aquí</h2>
+                <p>o utiliza los botones para explorar tu equipo</p>
+                <div class="actions">
+                    <button id="btn-select-files" class="btn btn-primary">Seleccionar Archivos</button>
+                    <button id="btn-select-folder" class="btn btn-secondary">Seleccionar Carpeta</button>
                 </div>
             </div>
+            <!-- Inputs ocultos manejados por los botones -->
+            <input type="file" id="file-input" multiple accept=".pdf,.docx,.zip" hidden>
+            <input type="file" id="folder-input" webkitdirectory directory multiple hidden>
+        </section>
 
-            <div class="action-buttons">
-                <button id="btn-clear" class="btn btn-ghost" disabled>
-                    🗑️ Limpiar
-                </button>
-                <button id="btn-export-pdf" class="btn btn-secondary" disabled>
-                    📄 Exportar Reporte PDF
-                </button>
-                <button id="btn-export-csv" class="btn btn-primary" disabled>
-                    📊 Exportar Excel (CSV)
-                </button>
+        <!-- Lista de archivos en cola -->
+        <section id="file-list-container" class="file-list-section" hidden>
+            <div class="list-header">
+                <h3>Archivos Detectados (<span id="file-count">0</span>)</h3>
+                <button id="btn-clear" class="btn btn-danger btn-sm">Limpiar Todo</button>
+            </div>
+            <ul id="file-list" class="file-list"></ul>
+        </section>
+
+        <!-- Panel de Estadísticas y Estado -->
+        <section id="stats-summary" class="stats-panel" hidden>
+            <div class="stat-box"><span class="label">Total:</span> <strong id="stat-total">0</strong></div>
+            <div class="stat-box"><span class="label">PDF:</span> <strong id="stat-pdf">0</strong></div>
+            <div class="stat-box"><span class="label">DOCX:</span> <strong id="stat-docx">0</strong></div>
+            <div class="stat-box"><span class="label">ZIP:</span> <strong id="stat-zip">0</strong></div>
+        </section>
+
+        <div class="status-bar">
+            <p id="status-text">Esperando archivos...</p>
+        </div>
+
+        <!-- Barra de Filtros y Exportación -->
+        <section id="filter-bar" class="controls-bar" hidden>
+            <input type="text" id="filter-input" placeholder="🔍 Buscar por nombre de estudiante..." class="search-input">
+            <div class="export-actions">
+                <button id="btn-export-csv" class="btn btn-outline">Exportar CSV</button>
+                <button id="btn-export-pdf" class="btn btn-outline">Exportar PDF</button>
             </div>
         </section>
 
-        <!-- Filtro de búsqueda en resultados -->
-        <div class="filter-bar" id="filter-bar" hidden>
-            <label for="filter-input" class="sr-only">Filtrar resultados</label>
-            <input type="search"
-                   id="filter-input"
-                   class="filter-input"
-                   placeholder="🔍 Filtrar por nombre de estudiante..."
-                   aria-label="Filtrar resultados por nombre">
-        </div>
-
-        <!-- Tabla de Resultados Consolidada -->
-        <section class="results-section" aria-labelledby="results-heading">
-            <h2 id="results-heading">Consolidado de Evaluaciones</h2>
-            <div class="table-responsive" role="region" aria-label="Tabla de resultados" tabindex="0">
-                <table id="results-table" class="results-table">
-                    <thead>
-                        <tr>
-                            <th scope="col">#</th>
-                            <th scope="col">Estudiante / Archivo</th>
-                            <th scope="col">C1: Ley/Norma (5P)</th>
-                            <th scope="col">C2: Evidencias (7P)</th>
-                            <th scope="col">C3: Ética/RRHH (8P)</th>
-                            <th scope="col">Nota (0-20)</th>
-                            <th scope="col">Conectores</th>
-                            <th scope="col">Observaciones y Fortalecimiento</th>
-                        </tr>
-                    </thead>
-                    <tbody id="table-body">
-                        <tr>
-                            <td colspan="8" class="empty-msg">
-                                No hay datos procesados. Sube archivos PDF, DOCX o ZIP para iniciar.
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
+        <!-- Tabla de Resultados -->
+        <section class="table-container">
+            <table class="results-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Estudiante</th>
+                        <th>Ley (5)</th>
+                        <th>Evid. (7)</th>
+                        <th>RRHH (8)</th>
+                        <th>Nota Final</th>
+                        <th>Conectores</th>
+                        <th>Observaciones</th>
+                    </tr>
+                </thead>
+                <tbody id="table-body">
+                    <tr>
+                        <td colspan="8" class="empty-msg">No hay datos procesados. Sube archivos para iniciar.</td>
+                    </tr>
+                </tbody>
+            </table>
         </section>
     </main>
 
-    <!-- ========== FOOTER ========== -->
-    <footer class="app-footer" role="contentinfo">
-        <p>&copy; 2026 Sistema de Sistematización TIC — Gestión Ambiental y Recursos Humanos</p>
-    </footer>
+    <!-- Overlay de Carga Modal -->
+    <div id="loading-overlay" class="overlay" hidden>
+        <div class="loader-card">
+            <div class="spinner"></div>
+            <h3 id="loading-message">Procesando...</h3>
+            <progress id="loading-progress" max="100" value="0"></progress>
+        </div>
+    </div>
 
-    <script src="app.js"></script>
+    <!-- Archivo Lógico Principal -->
+    <script src="index.js"></script>
 </body>
 </html>
