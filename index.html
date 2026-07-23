@@ -18,13 +18,13 @@
     <main class="container">
         <header class="app-header">
             <h1>Sistema de Evaluación <span>RR.HH.</span></h1>
-            <p>Sube archivos PDF, DOCX o ZIP. El sistema extraerá, leerá y evaluará el contenido automáticamente.</p>
+            <p>Sube archivos PDF, DOCX, ZIP o carpetas completas para evaluar automáticamente a los estudiantes.</p>
         </header>
 
         <!-- Panel de Errores -->
         <div id="error-panel" class="alert alert-danger" hidden>
             <span id="error-message"></span>
-            <button class="error-dismiss">&times;</button>
+            <button class="error-dismiss" aria-label="Cerrar error">&times;</button>
         </div>
 
         <!-- Zona de Arrastre y Selección -->
@@ -38,7 +38,6 @@
                     <button id="btn-select-folder" class="btn btn-secondary">Seleccionar Carpeta</button>
                 </div>
             </div>
-            <!-- Inputs ocultos manejados por los botones -->
             <input type="file" id="file-input" multiple accept=".pdf,.docx,.zip" hidden>
             <input type="file" id="folder-input" webkitdirectory directory multiple hidden>
         </section>
@@ -54,22 +53,28 @@
 
         <!-- Panel de Estadísticas y Estado -->
         <section id="stats-summary" class="stats-panel" hidden>
-            <div class="stat-box"><span class="label">Total:</span> <strong id="stat-total">0</strong></div>
-            <div class="stat-box"><span class="label">PDF:</span> <strong id="stat-pdf">0</strong></div>
-            <div class="stat-box"><span class="label">DOCX:</span> <strong id="stat-docx">0</strong></div>
-            <div class="stat-box"><span class="label">ZIP:</span> <strong id="stat-zip">0</strong></div>
+            <div class="stat-box"><span class="label">Total Docs:</span> <strong id="stat-total">0</strong></div>
+            <div class="stat-box"><span class="label">PDFs:</span> <strong id="stat-pdf">0</strong></div>
+            <div class="stat-box"><span class="label">DOCXs:</span> <strong id="stat-docx">0</strong></div>
+            <div class="stat-box"><span class="label">ZIPs:</span> <strong id="stat-zip">0</strong></div>
         </section>
 
         <div class="status-bar">
             <p id="status-text">Esperando archivos...</p>
         </div>
 
-        <!-- Barra de Filtros y Exportación -->
+        <!-- Barra de Configuración y Exportación -->
         <section id="filter-bar" class="controls-bar" hidden>
-            <input type="text" id="filter-input" placeholder="🔍 Buscar por nombre de estudiante..." class="search-input">
+            <div class="settings-group">
+                <input type="text" id="filter-input" placeholder="🔍 Buscar estudiante..." class="search-input">
+                <div class="threshold-control">
+                    <label for="umbral-aprobacion">Nota Mínima:</label>
+                    <input type="number" id="umbral-aprobacion" value="14" min="0" max="20" class="num-input">
+                </div>
+            </div>
             <div class="export-actions">
                 <button id="btn-export-csv" class="btn btn-outline">Exportar CSV</button>
-                <button id="btn-export-pdf" class="btn btn-outline">Exportar PDF</button>
+                <button id="btn-export-pdf" class="btn btn-primary">Descargar PDF Consolidado</button>
             </div>
         </section>
 
